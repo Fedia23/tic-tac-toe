@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # Service Discovery
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    container_name: eureka-server
+    ports:
+      - "8761:8761"
+    environment:
+      - JAVA_OPTS=-Xmx256m -Xms128m
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+
+  # Game Engine Service
+  game-engine-service:
+    build:
+      context: ./game-engine-service
+      dockerfile: Dockerfile
+    container_name: game-engine-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=game-engine-service
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+
+  # Game Session Service
+  game-session-service:
+    build:
+      context: ./game-session-service
+      dockerfile: Dockerfile
+    container_name: game-session-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - GAME_ENGINE_URL=http://game-engine-service
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - EUREKA_INSTANCE_HOSTNAME=game-session-service
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      game-engine-service:
+        condition: service_healthy
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+
+  # Frontend React
+  tictactoe-ui:
+    build:
+      context: ./tictactoe-ui
+      dockerfile: Dockerfile
+    container_name: tictactoe-ui
+    ports:
+      - "80:80"
+      - "3000:80"  # Alternative port for development
+    environment:
+      - REACT_APP_ENGINE_API_URL=http://localhost:8081
+      - REACT_APP_SESSION_API_URL=http://localhost:8082
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      game-engine-service:
+        condition: service_healthy
+      game-session-service:
+        condition: service_healthy
+    networks:
+      - tictactoe-network
+    restart: unless-stopped
+
+networks:
+  tictactoe-network:
+    driver: bridge
+    name: tictactoe-network
